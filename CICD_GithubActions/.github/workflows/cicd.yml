@@ -1,0 +1,44 @@
+name: CICD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  Build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Log in to DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build & Push Backend Image
+        working-directory: ./backend
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/myapp-backend:latest .
+          docker push ${{ secrets.DOCKER_USERNAME }}/myapp-backend:latest
+
+      - name: Build & Push Frontend Image
+        working-directory: ./frontend
+        run: |
+          docker build --build-arg VITE_REACT_APP_API_URL=${{ secrets.API_URL }} \
+            -t ${{ secrets.DOCKER_USERNAME }}/myapp-frontend:latest .
+          docker push ${{ secrets.DOCKER_USERNAME }}/myapp-frontend:latest
+
+  Deploy:
+    needs: Build
+    runs-on: [self-hosted, linux, x64] # EC2 as the runner
+    steps:
+      - name: Pull & Restart Backend
+        run: |
+          docker pull ${{ secrets.DOCKER_USERNAME }}/myapp-backend:latest
+          docker stop backend || true && docker rm backend || true
+          docker run -d --name backend -p 5000:5000 ${{ secrets.DOCKER_USERNAME }}/myapp-backend:latest
+
+      - name: Pull & Restart Frontend
+        run: |
+          docker pull ${{ secrets.DOCKER_USERNAME }}/myapp-frontend:latest
+          docker stop frontend || true && docker rm frontend || true
+          docker run -d --name frontend -p 80:3000 ${{ secrets.DOCKER_USERNAME }}/myapp-frontend:latest
